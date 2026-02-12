@@ -50,7 +50,13 @@ export async function setConfig(config: Partial<CopyTraderConfig>): Promise<Copy
 export async function getState(): Promise<CopyTraderState> {
   const s = await kv.get<CopyTraderState>(STATE_KEY);
   return s
-    ? { lastTimestamp: s.lastTimestamp ?? 0, copiedKeys: s.copiedKeys ?? [] }
+    ? {
+        lastTimestamp: s.lastTimestamp ?? 0,
+        copiedKeys: s.copiedKeys ?? [],
+        lastRunAt: s.lastRunAt,
+        lastCopiedAt: s.lastCopiedAt,
+        lastError: s.lastError,
+      }
     : { lastTimestamp: 0, copiedKeys: [] };
 }
 
@@ -58,6 +64,10 @@ export async function setState(state: Partial<CopyTraderState>): Promise<void> {
   const current = await getState();
   const updated = { ...current, ...state };
   await kv.set(STATE_KEY, updated);
+}
+
+export async function resetSyncState(): Promise<void> {
+  await kv.set(STATE_KEY, { lastTimestamp: 0, copiedKeys: [] });
 }
 
 export async function getRecentActivity(): Promise<RecentActivity[]> {

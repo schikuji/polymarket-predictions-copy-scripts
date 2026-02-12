@@ -61,10 +61,11 @@ async function runCopyTradeHandler() {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const isCron = CRON_SECRET && auth === `Bearer ${CRON_SECRET}`;
-  if (!isCron) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (CRON_SECRET) {
+    const auth = request.headers.get("authorization");
+    if (auth !== `Bearer ${CRON_SECRET}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
   return runCopyTradeHandler();
 }

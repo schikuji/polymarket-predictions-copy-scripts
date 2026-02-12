@@ -124,22 +124,15 @@ export async function runCopyTrade(
   const copiedSet = new Set(state.copiedKeys);
   const isFirstRun = lastTimestamp === 0 && copiedSet.size === 0;
 
-  // On first run, only sync lastTimestamp—don't copy historical trades
-  if (isFirstRun && activities.length > 0) {
-    const tradeTs = activities
-      .filter((a) => a.type === "TRADE")
-      .map((a) => a.timestamp);
-    if (tradeTs.length > 0) {
-      result.lastTimestamp = Math.max(...tradeTs);
-      result.copiedKeys = state.copiedKeys;
-      return result;
-    }
-  }
+  // On first run, only copy trades from the last 5 minutes (avoid ancient history)
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fiveMinAgo = nowSec - 300;
 
   for (const act of activities) {
     if (act.type !== "TRADE") continue;
     const ts = act.timestamp;
     if (ts <= lastTimestamp) continue;
+    if (isFirstRun && ts < fiveMinAgo) continue; // Skip trades older than 5 min on first run
 
     const txHash = act.transactionHash ?? "";
     const asset = act.asset ?? "";

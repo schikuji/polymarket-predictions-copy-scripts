@@ -50,6 +50,7 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<string | null>(null);
   const [cashingOut, setCashingOut] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [positionTab, setPositionTab] = useState<PositionTab>("active");
   const [activePage, setActivePage] = useState(0);
@@ -122,6 +123,21 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Run failed");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const resetSync = async () => {
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/reset-sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Reset failed");
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reset failed");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -217,13 +233,22 @@ export default function Home() {
               />
             </button>
             <div className="flex flex-col items-end gap-1">
-              <button
-                onClick={runNow}
-                disabled={running}
-                className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium disabled:opacity-50 transition-colors"
-              >
-                {running ? "Running…" : "Run now"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={runNow}
+                  disabled={running}
+                  className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {running ? "Running…" : "Run now"}
+                </button>
+                <button
+                  onClick={resetSync}
+                  disabled={resetting}
+                  className="px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-sm disabled:opacity-50 transition-colors"
+                >
+                  {resetting ? "Resetting…" : "Reset sync"}
+                </button>
+              </div>
               {runResult && (
                 <span className="text-xs text-emerald-400/90">{runResult}</span>
               )}
@@ -448,6 +473,9 @@ export default function Home() {
           {status?.state.lastError && (
             <span className="block mt-1 text-red-400">{status.state.lastError}</span>
           )}
+          <a href="/api/debug" target="_blank" rel="noopener noreferrer" className="block mt-2 text-zinc-500 hover:text-zinc-400">
+            Debug
+          </a>
         </footer>
 
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
