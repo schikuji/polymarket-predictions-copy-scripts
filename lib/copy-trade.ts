@@ -156,14 +156,16 @@ export async function runCopyTrade(
     const side = sideStr === "BUY" ? Side.BUY : Side.SELL;
 
     try {
+      // Omit price for BUY so client uses current order book price (improves FOK fill rate)
+      const orderParams = {
+        tokenID: asset,
+        amount: betUsd,
+        side,
+        orderType: OrderType.FOK as const,
+        ...(side === Side.SELL && { price }),
+      };
       const resp = await client.createAndPostMarketOrder(
-        {
-          tokenID: asset,
-          amount: betUsd,
-          side,
-          price,
-          orderType: OrderType.FOK,
-        },
+        orderParams,
         undefined,
         OrderType.FOK
       );
@@ -183,22 +185,19 @@ export async function runCopyTrade(
         });
       } else {
         result.failed++;
+        const errMsg = resp?.errorMsg ?? "unknown";
+        result.error = result.error ? `${result.error}; ${errMsg}` : errMsg;
+        console.error("Copy trade failed:", errMsg, act.title);
       }
     } catch (e) {
       result.failed++;
+      const errStr = e instanceof Error ? e.message : String(e);
+      result.error = result.error ? `${result.error}; ${errStr}` : errStr;
       console.error("Copy trade error:", e);
     }
   }
 
-  if (activities.length > 0) {
-    const tradeTs = activities
-      .filter((a) => a.type === "TRADE")
-      .map((a) => a.timestamp);
-    if (tradeTs.length > 0 && lastTimestamp === state.lastTimestamp) {
-      lastTimestamp = Math.max(...tradeTs);
-    }
-  }
-
+  // Only advance lastTimestamp when we successfully copy—never skip trades we failed to copy
   result.lastTimestamp = lastTimestamp;
   result.copiedKeys = Array.from(copiedSet);
   return result;
