@@ -20,6 +20,9 @@ export async function POST() {
 
   try {
     const config = await getConfig();
+    if (!config.enabled) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "disabled" });
+    }
     const state = await getState();
     const result = await runCopyTrade(
       PRIVATE_KEY,

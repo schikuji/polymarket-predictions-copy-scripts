@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
-import { getPositions } from "@/lib/polymarket";
+import { getPositions, getClosedPositions } from "@/lib/polymarket";
 
 const MY_ADDRESS = process.env.MY_ADDRESS ?? "0x370e81c93aa113274321339e69049187cce03bb9";
 
 export async function GET() {
   try {
-    const positions = await getPositions(MY_ADDRESS, 50);
-    return NextResponse.json(positions);
+    const [open, closed] = await Promise.all([
+      getPositions(MY_ADDRESS, 100),
+      getClosedPositions(MY_ADDRESS, 50),
+    ]);
+    const active = open.filter((p) => !p.redeemable);
+    const resolved = [...open.filter((p) => p.redeemable), ...closed];
+    return NextResponse.json({ active, resolved });
   } catch (e) {
     console.error("Positions error:", e);
     return NextResponse.json(

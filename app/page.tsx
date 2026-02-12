@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+const PAGE_SIZE = 10;
+
 interface Config {
   enabled: boolean;
   minPercent: number;
@@ -37,14 +39,21 @@ interface Position {
   redeemable: boolean;
 }
 
+type PositionTab = "active" | "resolved";
+
 export default function Home() {
   const [status, setStatus] = useState<Status | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [activePositions, setActivePositions] = useState<Position[]>([]);
+  const [resolvedPositions, setResolvedPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<string | null>(null);
   const [cashingOut, setCashingOut] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [positionTab, setPositionTab] = useState<PositionTab>("active");
+  const [activePage, setActivePage] = useState(0);
+  const [resolvedPage, setResolvedPage] = useState(0);
 
   const fetchAll = async () => {
     try {
@@ -57,7 +66,8 @@ export default function Home() {
       const statusData = await statusRes.json();
       const positionsData = await positionsRes.json();
       setStatus(statusData);
-      setPositions(positionsData);
+      setActivePositions(positionsData.active ?? []);
+      setResolvedPositions(positionsData.resolved ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -93,11 +103,21 @@ export default function Home() {
 
   const runNow = async () => {
     setRunning(true);
+    setRunResult(null);
+    setError(null);
     try {
       const res = await fetch("/api/run-now", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       await fetchAll();
+      if (data.skipped) {
+        setRunResult("Skipped (copy trading is disabled)");
+      } else if (data.copied > 0) {
+        setRunResult(`Copied ${data.copied} trade${data.copied === 1 ? "" : "s"}`);
+      } else {
+        setRunResult("No new trades to copy");
+      }
+      setTimeout(() => setRunResult(null), 5000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Run failed");
     } finally {
@@ -164,6 +184,11 @@ export default function Home() {
           </p>
         </header>
 
+        {/* Note: no need to keep UI open */}
+        <p className="mb-4 text-xs text-zinc-500">
+          You don&apos;t need to keep this page open. When the toggle is on, a cron runs every minute on Vercel.
+        </p>
+
         {/* Balance + Control bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8 p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/60">
           <div>
@@ -191,13 +216,18 @@ export default function Home() {
                 `}
               />
             </button>
-            <button
-              onClick={runNow}
-              disabled={running}
-              className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium disabled:opacity-50 transition-colors"
-            >
-              {running ? "Running…" : "Run now"}
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={runNow}
+                disabled={running}
+                className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium disabled:opacity-50 transition-colors"
+              >
+                {running ? "Running…" : "Run now"}
+              </button>
+              {runResult && (
+                <span className="text-xs text-emerald-400/90">{runResult}</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -271,78 +301,144 @@ export default function Home() {
 
         {/* Positions */}
         <section>
-          <h2 className="text-sm font-medium text-zinc-400 mb-3">Your positions</h2>
-          {positions.length === 0 ? (
-            <p className="text-zinc-500 text-sm py-8 text-center">No open positions</p>
-          ) : (
-            <div className="space-y-4">
-              {positions.map((pos) => {
-                const marketUrl = `https://polymarket.com/event/${pos.eventSlug || pos.slug}`;
-                const canSell = !pos.redeemable && pos.curPrice > 0;
-                const pnlPositive = pos.cashPnl >= 0;
-                return (
-                  <div
-                    key={pos.asset}
-                    className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/60 hover:border-zinc-700/60 transition-colors"
-                  >
-                    <a
-                      href={marketUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block group"
-                    >
-                      <div className="flex gap-3">
-                        {pos.icon && (
-                          <img
-                            src={pos.icon}
-                            alt=""
-                            className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-zinc-100 group-hover:text-emerald-400 transition-colors line-clamp-2">
-                            {pos.title}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1.5">
-                            <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                              {pos.outcome}
-                            </span>
-                            <span className="text-xs text-zinc-500">
-                              ${pos.initialValue.toFixed(2)} → ${pos.currentValue.toFixed(2)}
-                            </span>
-                            <span
-                              className={`text-xs font-medium ${
-                                pnlPositive ? "text-emerald-400" : "text-red-400"
-                              }`}
-                            >
-                              {pnlPositive ? "+" : ""}{pos.cashPnl.toFixed(2)} ({pos.percentPnl.toFixed(1)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </a>
-                    {canSell && (
-                      <div className="mt-3 pt-3 border-t border-zinc-800/60">
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            cashout(pos);
-                          }}
-                          disabled={cashingOut === pos.asset}
-                          className="w-full py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-sm font-medium disabled:opacity-50 transition-colors"
-                        >
-                          {cashingOut === pos.asset ? "Selling…" : "Cash out"}
-                        </button>
-                      </div>
-                    )}
-                    {pos.redeemable && (
-                      <p className="mt-2 text-xs text-zinc-500">Resolved · Redeem on Polymarket</p>
-                    )}
-                  </div>
-                );
-              })}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-zinc-400">Your positions</h2>
+            <div className="flex rounded-lg bg-zinc-800/60 p-0.5">
+              <button
+                onClick={() => { setPositionTab("active"); setActivePage(0); }}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                  positionTab === "active" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => { setPositionTab("resolved"); setResolvedPage(0); }}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                  positionTab === "resolved" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Resolved
+              </button>
             </div>
-          )}
+          </div>
+
+          {(() => {
+            const displayed = positionTab === "active" ? activePositions : resolvedPositions;
+            const page = positionTab === "active" ? activePage : resolvedPage;
+            const totalPages = Math.ceil(displayed.length / PAGE_SIZE) || 1;
+            const paginated = displayed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+            if (displayed.length === 0) {
+              return (
+                <p className="text-zinc-500 text-sm py-8 text-center">
+                  {positionTab === "active" ? "No active positions" : "No resolved positions"}
+                </p>
+              );
+            }
+
+            return (
+              <>
+                <div className="space-y-4">
+                  {paginated.map((pos) => {
+                    const marketUrl = `https://polymarket.com/event/${pos.eventSlug || pos.slug}`;
+                    const canSell = !pos.redeemable && pos.curPrice > 0;
+                    const pnlPositive = pos.cashPnl >= 0;
+                    return (
+                      <div
+                        key={pos.asset}
+                        className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/60 hover:border-zinc-700/60 transition-colors"
+                      >
+                        <a
+                          href={marketUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block group"
+                        >
+                          <div className="flex gap-3">
+                            {pos.icon && (
+                              <img
+                                src={pos.icon}
+                                alt=""
+                                className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                              />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-zinc-100 group-hover:text-emerald-400 transition-colors line-clamp-2">
+                                {pos.title}
+                              </p>
+                              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                                  {pos.outcome}
+                                </span>
+                                <span className="text-xs text-zinc-500">
+                                  ${pos.initialValue.toFixed(2)} → ${pos.currentValue.toFixed(2)}
+                                </span>
+                                <span
+                                  className={`text-xs font-medium ${
+                                    pnlPositive ? "text-emerald-400" : "text-red-400"
+                                  }`}
+                                >
+                                  {pnlPositive ? "+" : ""}{pos.cashPnl.toFixed(2)} ({pos.percentPnl.toFixed(1)}%)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </a>
+                        {canSell && (
+                          <div className="mt-3 pt-3 border-t border-zinc-800/60">
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                cashout(pos);
+                              }}
+                              disabled={cashingOut === pos.asset}
+                              className="w-full py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-sm font-medium disabled:opacity-50 transition-colors"
+                            >
+                              {cashingOut === pos.asset ? "Selling…" : "Cash out"}
+                            </button>
+                          </div>
+                        )}
+                        {pos.redeemable && (
+                          <p className="mt-2 text-xs text-zinc-500">Resolved · Redeem on Polymarket</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-4">
+                    <button
+                      onClick={() =>
+                        positionTab === "active"
+                          ? setActivePage((p) => Math.max(0, p - 1))
+                          : setResolvedPage((p) => Math.max(0, p - 1))
+                      }
+                      disabled={page === 0}
+                      className="px-3 py-1.5 rounded-lg bg-zinc-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-zinc-700"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-zinc-500">
+                      Page {page + 1} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() =>
+                        positionTab === "active"
+                          ? setActivePage((p) => Math.min(totalPages - 1, p + 1))
+                          : setResolvedPage((p) => Math.min(totalPages - 1, p + 1))
+                      }
+                      disabled={page >= totalPages - 1}
+                      className="px-3 py-1.5 rounded-lg bg-zinc-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-zinc-700"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </section>
 
         {/* Status footer */}
